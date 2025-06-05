@@ -1,6 +1,10 @@
 # bot.py
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
+# This bot uses Twilio for WhatsApp communication.
+# Ensure the following environment variables are set:
+# TWILIO_ACCOUNT_SID: Your Twilio Account SID
+# TWILIO_AUTH_TOKEN: Your Twilio Auth Token
+# TWILIO_WHATSAPP_NUMBER: Your Twilio WhatsApp-enabled number (e.g., whatsapp:+14155238886)
+
 import nltk
 import os
 import pandas as pd
@@ -11,6 +15,9 @@ from nltk.stem import RSLPStemmer
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 import re
+from flask import Flask, request # Corrected Flask import
+from twilio.rest import Client
+from twilio.twiml.messaging_response import MessagingResponse # Corrected TwiML import
 
 # Carregar variáveis de ambiente
 load_dotenv()
@@ -20,8 +27,18 @@ nltk.download('punkt')
 nltk.download('stopwords')
 nltk.download('rslp')
 
-# TOKEN do Bot
-TOKEN = os.getenv('TELEGRAM_TOKEN')
+# TOKEN do Bot (Telegram) - Will be replaced by Twilio credentials
+# TOKEN = os.getenv('TELEGRAM_TOKEN') # Ensure this is or remains commented
+TWILIO_ACCOUNT_SID = os.getenv('TWILIO_ACCOUNT_SID')
+TWILIO_AUTH_TOKEN = os.getenv('TWILIO_AUTH_TOKEN')
+TWILIO_WHATSAPP_NUMBER = os.getenv('TWILIO_WHATSAPP_NUMBER')
+
+# Global variables for NLP model and data
+vectorizer = None
+X = None
+df_global = None # Renamed to avoid conflict with df in preparar_modelo
+app = Flask(__name__)
+client = None # Will be initialized in main
 
 # Dicionário de abreviações comuns
 ABREVIACOES = {
@@ -188,49 +205,51 @@ def preprocessar_texto(texto):
 
 # Carregar e preparar o dataset
 def carregar_dataset():
+    global df_global # Use the global df_global
     try:
-        df = pd.read_csv('perguntas_respostas.csv', encoding='utf-8', quotechar='"')
-        return df
+        df_global = pd.read_csv('perguntas_respostas.csv', encoding='utf-8', quotechar='"')
+        return df_global
     except Exception as e:
         print(f"Erro ao carregar dataset: {str(e)}")
         return None
 
 # Preparar o modelo de similaridade
-def preparar_modelo(df):
-    df['texto_processado'] = df['pergunta'].apply(preprocessar_texto)
+def preparar_modelo(current_df): # Renamed df to current_df to avoid confusion with global df_global
+    current_df['texto_processado'] = current_df['pergunta'].apply(preprocessar_texto)
+    global vectorizer, X # Use global vectorizer and X
     vectorizer = TfidfVectorizer()
-    X = vectorizer.fit_transform(df['texto_processado'])
-    return vectorizer, X, df
+    X = vectorizer.fit_transform(current_df['texto_processado'])
+    return vectorizer, X, current_df # Return them, though they are global now
 
-# Palavras-chave para reconhecimento de perguntas administrativas
-PALAVRAS_CHAVE = [
-    # Palavras interrogativas
-    'como', 'onde', 'quando', 'quem', 'qual', 'quais', 'o que', 'por que', 'porque', '?',
-    # Verbos de ação
-    'solicitar', 'contato', 'entrar', 'contatar', 'fazer', 'denunciar', 'denúncia',
-    'manutenção', 'manter', 'consertar', 'reparar', 'reclamar', 'reclamação',
-    # Termos específicos
-    'alvará', 'alvara', 'limpeza', 'terreno', 'baldio', 'horário', 'abre', 'funciona',
-    'poda', 'árvore', 'árvores', 'iluminação', 'pública', 'publica', 'luz', 'poste',
-    'sede', 'local', 'endereço', 'endereco', 'plano', 'piloto', 'regional',
-    # Verbos auxiliares
-    'posso', 'devo', 'preciso', 'quero', 'desejo', 'gostaria'
-]
+# Palavras-chave para reconhecimento de perguntas administrativas (REMOVED as per stateless WhatsApp interaction)
+# PALAVRAS_CHAVE = [
+#     # Palavras interrogativas
+#     'como', 'onde', 'quando', 'quem', 'qual', 'quais', 'o que', 'por que', 'porque', '?',
+#     # Verbos de ação
+#     'solicitar', 'contato', 'entrar', 'contatar', 'fazer', 'denunciar', 'denúncia',
+#     'manutenção', 'manter', 'consertar', 'reparar', 'reclamar', 'reclamação',
+#     # Termos específicos
+#     'alvará', 'alvara', 'limpeza', 'terreno', 'baldio', 'horário', 'abre', 'funciona',
+#     'poda', 'árvore', 'árvores', 'iluminação', 'pública', 'publica', 'luz', 'poste',
+#     'sede', 'local', 'endereço', 'endereco', 'plano', 'piloto', 'regional',
+#     # Verbos auxiliares
+#     'posso', 'devo', 'preciso', 'quero', 'desejo', 'gostaria'
+# ]
 
 # Função para encontrar resposta mais similar
-def encontrar_resposta(pergunta, vectorizer, X, df):
+def encontrar_resposta(pergunta, current_vectorizer, current_X, current_df): # Parameters passed explicitly
     pergunta_processada = preprocessar_texto(pergunta)
-    pergunta_vetor = vectorizer.transform([pergunta_processada])
+    pergunta_vetor = current_vectorizer.transform([pergunta_processada])
     
-    similaridades = cosine_similarity(pergunta_vetor, X)
+    similaridades = cosine_similarity(pergunta_vetor, current_X)
     indice_mais_similar = similaridades.argmax()
     
     # Reduzindo o limiar de similaridade para 0.1
     if similaridades[0, indice_mais_similar] > 0.1:
-        return df.iloc[indice_mais_similar]['resposta']
+        return current_df.iloc[indice_mais_similar]['resposta']
     else:
-        # Tentar encontrar por palavras-chave específicas
-        palavras_chave = {
+        # Tentar encontrar por palavras-chave específicas (Simplified: this part might need review for effectiveness without context)
+        palavras_chave_respostas = { # Renamed to avoid conflict
             'alvará': 'Para solicitar um alvará de construção, você precisa apresentar os seguintes documentos na administração regional: projeto arquitetônico, ART do responsável técnico, comprovante de propriedade do terreno e documentos pessoais.',
             'contato': 'Você pode entrar em contato com a administração regional através do telefone (61) 9999-9999, e-mail contato@adminregional.df.gov.br ou pessoalmente na sede administrativa.',
             'limpeza': 'Para solicitar a limpeza de terrenos baldios, você pode fazer a solicitação através do aplicativo 156, site do GDF ou diretamente na administração regional.',
@@ -244,99 +263,89 @@ def encontrar_resposta(pergunta, vectorizer, X, df):
         
         # Verifica cada palavra da pergunta processada
         for palavra in pergunta_processada.split():
-            if palavra in palavras_chave:
-                return palavras_chave[palavra]
+            if palavra in palavras_chave_respostas:
+                return palavras_chave_respostas[palavra]
         
         return "Desculpe, não encontrei uma resposta adequada para sua pergunta. Tente reformular ou perguntar de outra forma."
 
-# Função para iniciar o bot
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    keyboard = [
-        [
-            InlineKeyboardButton("Perguntas Administração", callback_data='admin')
-        ]
-    ]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text(
-        'Olá! Eu sou um chatbot da Administração Regional. Como posso ajudar?',
-        reply_markup=reply_markup
-    )
+# Removed Telegram specific functions: start, handle_message, iniciar_perguntas_admin, button
 
-# Função para processar mensagens
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        text = update.message.text.lower()
-        
-        # Verifica se é uma pergunta sobre administração
-        if any(palavra in text for palavra in PALAVRAS_CHAVE) or 'administração' in text or 'regional' in text:
-            # Se estiver no modo de perguntas administrativas ou se a mensagem claramente for uma pergunta administrativa
-            if context.user_data.get('aguardando_pergunta_admin', False) or any(palavra in text for palavra in ['administração', 'regional', 'alvará', 'contato', 'denúncia']):
-                resposta = encontrar_resposta(text, context.bot_data['vectorizer'], 
-                                            context.bot_data['X'], context.bot_data['df'])
-                await update.message.reply_text(resposta)
-                context.user_data['aguardando_pergunta_admin'] = False
-            else:
-                # Se não estiver no modo de perguntas administrativas, mas a mensagem parecer uma pergunta administrativa
-                context.user_data['aguardando_pergunta_admin'] = True
-                resposta = encontrar_resposta(text, context.bot_data['vectorizer'], 
-                                            context.bot_data['X'], context.bot_data['df'])
-                await update.message.reply_text(resposta)
-                context.user_data['aguardando_pergunta_admin'] = False
-        else:
-            # Se não for uma pergunta administrativa
-            if context.user_data.get('aguardando_pergunta_admin', False):
-                await update.message.reply_text("Por favor, faça uma pergunta sobre a administração regional.")
-                context.user_data['aguardando_pergunta_admin'] = False
-            else:
-                await update.message.reply_text("Por favor, faça uma pergunta sobre a administração regional.")
-    except Exception as e:
-        await update.message.reply_text(f'Ocorreu um erro ao processar sua mensagem: {str(e)}')
+@app.route("/whatsapp", methods=['POST'])
+def whatsapp_reply():
+    global vectorizer, X, df_global # Access global NLP model data
+    # global client # Access global Twilio client
 
-# Função para iniciar perguntas sobre administração
-async def iniciar_perguntas_admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+    incoming_msg = request.values.get('Body', '').lower()
+    from_number = request.values.get('From', '') # User's WhatsApp number with "whatsapp:" prefix
+
+    if not incoming_msg:
+        return '', 200 # Or some error message
+
+    # Logic to find answer using `encontrar_resposta`
+    # Ensure vectorizer, X, and df_global are loaded before the first request
+    if vectorizer is None or X is None or df_global is None:
+        print("Error: NLP model not loaded.")
+        # Potentially send an error message back to user or log
+        return "Erro interno do servidor: modelo NLP não carregado.", 500
+
+    resposta_bot = encontrar_resposta(incoming_msg, vectorizer, X, df_global)
+
+    # print(f"Incoming message from {from_number}: {incoming_msg}")
+    # print(f"Bot response: {resposta_bot}")
+
+    # This is how to send a message
+    if client and from_number and TWILIO_WHATSAPP_NUMBER: # Use the global variable
+        try:
+            client.messages.create(
+                from_=f'whatsapp:{TWILIO_WHATSAPP_NUMBER}', # Bot's Twilio WhatsApp number
+                body=resposta_bot,
+                to=from_number # User's WhatsApp number
+            )
+            print(f"Message sent to {from_number}")
+        except Exception as e:
+            print(f"Error sending Twilio message: {e}")
+    else:
+        if not client:
+            print("Twilio client not initialized.")
+        if not from_number:
+            print("Sender number missing.")
+        if not TWILIO_WHATSAPP_NUMBER:
+            print("Twilio WhatsApp number not configured in environment variables.")
+        print("Cannot send reply due to missing Twilio client or configuration.")
     
-    context.user_data['aguardando_pergunta_admin'] = True
-    await query.edit_message_text(
-        text="Por favor, digite sua pergunta sobre a administração regional de Brasília."
-    )
-
-# Função para processar botões
-async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
-    
-    if query.data == 'admin':
-        await iniciar_perguntas_admin(update, context)
+    # For now, we'll just return the bot's response in the HTTP response for testing purposes.
+    # Twilio expects an empty response or TwiML. Replying directly in HTTP response is not how it works.
+    # This return is a placeholder for testing the `encontrar_resposta` logic via HTTP.
+    # In a real Twilio setup, you'd return str(MessagingResponse()) or an empty string.
+    # For now, returning an empty string and 200 OK as a typical webhook acknowledgement.
+    # The actual reply is sent via client.messages.create()
+    return '', 200
 
 # Função principal
 def main():
+    global vectorizer, X, df_global, client # Declare them as global to modify
+
     try:
         # Carregar e preparar o dataset
-        df = carregar_dataset()
-        if df is None:
+        loaded_df = carregar_dataset() # Loads into df_global
+        if loaded_df is None:
             print("Erro ao carregar o dataset. Verifique se o arquivo perguntas_respostas.csv existe.")
             return
             
-        vectorizer, X, df = preparar_modelo(df)
+        # preparar_modelo will use and set global vectorizer, X using df_global
+        preparar_modelo(df_global)
         
-        # Criar a aplicação
-        application = Application.builder().token(TOKEN).build()
-        
-        # Armazenar dados do modelo no bot
-        application.bot_data['vectorizer'] = vectorizer
-        application.bot_data['X'] = X
-        application.bot_data['df'] = df
+        # Initialize Twilio client
+        # account_sid and auth_token are now global variables loaded at the start of the script.
+        if TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN:
+            client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+            print("Twilio client initialized.")
+        else:
+            print("Twilio credentials (TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN) not found in environment. Client not initialized.")
 
-        # Adicionar handlers
-        application.add_handler(CommandHandler('start', start))
-        application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-        application.add_handler(CallbackQueryHandler(button))
-
-        # Iniciar o bot
-        print('Bot iniciado...')
-        application.run_polling()
+        # Run Flask app
+        print('Starting Flask app for WhatsApp bot...')
+        app.run(debug=True, port=5000) # Port 5000 is common for Flask dev
     except Exception as e:
         print(f'Erro ao iniciar o bot: {str(e)}')
 

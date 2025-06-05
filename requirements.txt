@@ -1,5 +1,6 @@
-python-telegram-bot==20.7
 nltk==3.8.1
 python-dotenv==1.0.0
+twilio
+Flask
 pandas==2.1.4
 scikit-learn==1.3.2 
