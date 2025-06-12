@@ -1,0 +1,28 @@
+# fly.toml: Final Version
+
+app = 'meu-chatbot-telegram-ra-123'
+primary_region = 'gru'
+
+# The [build] section has been removed!
+
+[deploy]
+  # Executa o download do NLTK primeiro, depois a migração, e por último o webhook
+  release_command = "sh ./release.sh"
+
+[env]
+  PORT = '8080'
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ['app']
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '512MB' # Keeping the 512MB we set before
+
+[processes]
+  app = "gunicorn --worker-tmp-dir /dev/shm bot:server"
