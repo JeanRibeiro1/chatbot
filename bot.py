@@ -142,6 +142,12 @@ server = Flask(__name__)
 # 5. Define a rota do webhook que recebe as mensagens do Telegram
 @server.route('/', methods=['POST'])
 async def webhook():
+    # --- INÍCIO DA CORREÇÃO ---
+    # Na primeira vez que esta função for chamada, inicializa a aplicação.
+    if not application.initialized:
+        await application.initialize()
+    # --- FIM DA CORREÇÃO ---
+
     update = Update.de_json(request.get_json(force=True), application.bot)
     await application.process_update(update)
     return 'ok'
