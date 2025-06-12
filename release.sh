@@ -11,3 +11,5 @@ python migrar_remoto.py
 
 # 3. Configura o webhook do Telegram
 python set_webhook.py
+
+python notify_startup.py

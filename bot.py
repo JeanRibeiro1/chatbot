@@ -1,22 +1,22 @@
-# bot.py - Versão Final Corrigida
+# bot.py - VERSÃO FINAL COM LAZY LOADING
 
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes, CallbackQueryHandler
-import nltk
 import os
+import re
 import pandas as pd
 from dotenv import load_dotenv
+from flask import Flask, request
+from sqlalchemy import create_engine, Column, Integer, Text
+from sqlalchemy.orm import sessionmaker
+from sqlalchemy.ext.declarative import declarative_base
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from asgiref.wsgi import WsgiToAsgi
+import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import RSLPStemmer
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
-import re
-from sqlalchemy import create_engine, Column, Integer, String, Text
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from flask import Flask, request
-from asgiref.wsgi import WsgiToAsgi
 
 # --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
@@ -43,21 +43,18 @@ class PerguntaResposta(Base):
 
 Base.metadata.create_all(bind=engine)
 
-
 # --- DICIONÁRIOS E FUNÇÕES DE PROCESSAMENTO DE TEXTO ---
 ABREVIACOES = {
     'adm': 'administração', 'ar': 'administração regional', 'gdf': 'governo do distrito federal',
     'ceb': 'companhia energética de brasília', 'slu': 'serviço de limpeza urbana',
     'caesb': 'companhia de saneamento ambiental do distrito federal', 'art': 'anotação de responsabilidade técnica',
     'sqs': 'superquadra sul', 'alv': 'alvará', 'doc': 'documento', 'docs': 'documentos',
-    # Adicione outras abreviações conforme necessário
 }
 
 CORRECOES = {
     'alvara': 'alvará', 'administracao': 'administração', 'brasilia': 'brasília',
     'denuncia': 'denúncia', 'iluminacao': 'iluminação', 'publica': 'pública',
     'manutencao': 'manutenção', 'horario': 'horário',
-    # Adicione outras correções comuns
 }
 
 def corrigir_texto(texto):
@@ -86,8 +83,6 @@ def carregar_dataset():
         return None
 
 def preparar_modelo(df):
-    # Agora estamos usando a coluna 'texto_processado' que já veio pronta do banco de dados.
-    # Isso garante consistência e é mais eficiente.
     vectorizer = TfidfVectorizer()
     X = vectorizer.fit_transform(df['texto_processado'])
     return vectorizer, X, df
@@ -103,55 +98,69 @@ def encontrar_resposta(pergunta, vectorizer, X, df):
     else:
         return "Desculpe, não encontrei uma resposta adequada para sua pergunta. Tente reformular ou perguntar de outra forma."
 
+# --- FUNÇÃO DE LAZY LOADING ---
+def load_model_into_context(context: ContextTypes.DEFAULT_TYPE):
+    """Carrega o dataset e prepara o modelo de IA, armazenando no contexto do bot."""
+    print("Modelo não encontrado no contexto. Carregando e preparando agora...")
+    df = carregar_dataset()
+    if df is None or df.empty:
+        raise RuntimeError("Erro fatal: Não foi possível carregar o dataset do banco de dados.")
+    
+    vectorizer, X, df_prepared = preparar_modelo(df)
+    
+    context.bot_data['vectorizer'] = vectorizer
+    context.bot_data['X'] = X
+    context.bot_data['df'] = df_prepared
+    print("Modelo carregado e preparado com sucesso.")
+
 # --- FUNÇÕES DE HANDLER DO TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Olá! Eu sou um chatbot da Administração Regional. Como posso ajudar?')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Processa a mensagem do usuário, garantindo que o modelo de IA esteja carregado."""
     try:
+        # LAZY LOADING: Se o modelo não estiver no contexto, carregue-o.
+        if 'vectorizer' not in context.bot_data:
+            load_model_into_context(context)
+
         text = update.message.text
-        resposta = encontrar_resposta(text, context.bot_data['vectorizer'], context.bot_data['X'], context.bot_data['df'])
+        resposta = encontrar_resposta(
+            text, 
+            context.bot_data['vectorizer'], 
+            context.bot_data['X'], 
+            context.bot_data['df']
+        )
         await update.message.reply_text(resposta)
     except Exception as e:
-        await update.message.reply_text(f'Ocorreu um erro ao processar sua mensagem: {str(e)}')
-
+        error_message = f'Ocorreu um erro ao processar sua mensagem: {str(e)}'
+        print(error_message)
+        await update.message.reply_text(error_message)
 
 # --- INICIALIZAÇÃO FINAL PARA O SERVIDOR ---
-
-# 1. Carrega os dados e prepara o modelo UMA VEZ quando o app inicia
-print("Inicializando o bot: carregando e preparando o modelo...")
-df_global = carregar_dataset()
-if df_global is None or df_global.empty:
-    raise RuntimeError("Erro fatal: Não foi possível carregar o dataset do banco de dados ou ele está vazio.")
-vectorizer_global, X_global, df_prepared_global = preparar_modelo(df_global)
-print("Modelo preparado com sucesso.")
-
-# 2. Cria a instância da aplicação do Telegram e armazena os dados do modelo
+print("Configurando a aplicação Telegram...")
 application = Application.builder().token(TOKEN).build()
-application.bot_data['is_initialized'] = False  # NOSSA VARIÁVEL DE CONTROLE
-application.bot_data['vectorizer'] = vectorizer_global
-application.bot_data['X'] = X_global
-application.bot_data['df'] = df_prepared_global
+application.bot_data['is_initialized'] = False
 
-# 3. Adiciona os handlers (rotinas que processam os comandos e mensagens)
+# Adiciona os handlers (rotinas que processam os comandos e mensagens)
 application.add_handler(CommandHandler('start', start))
 application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-# 4. Cria a instância do servidor Flask (esta é a variável 'server' que o Gunicorn procura)
+# Cria a instância do servidor Flask
 server = Flask(__name__)
 
-# 5. Define a rota do webhook que recebe as mensagens do Telegram
-@@server.route('/', methods=['POST'])
+# Define a rota do webhook que recebe as mensagens do Telegram
+@server.route('/', methods=['POST'])
 async def webhook():
-    # --- INÍCIO DA CORREÇÃO FINAL ---
-    # Verifica a NOSSA variável de controle. Se for False, inicializa e muda para True.
+    # Inicializa a aplicação na primeira vez que for usada
     if not application.bot_data.get('is_initialized', False):
         await application.initialize()
         application.bot_data['is_initialized'] = True
-    # --- FIM DA CORREÇÃO FINAL ---
 
     update = Update.de_json(request.get_json(force=True), application.bot)
     await application.process_update(update)
     return 'ok'
+
 # "Traduz" o nosso app Flask (WSGI) para um formato que o Uvicorn (ASGI) entende.
 server = WsgiToAsgi(server)
+print("Aplicação pronta para ser servida pelo Gunicorn/Uvicorn.")

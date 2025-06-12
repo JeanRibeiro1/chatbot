@@ -25,4 +25,4 @@ primary_region = 'gru'
   memory = '512MB' # Keeping the 512MB we set before
 
 [processes]
-  app = "gunicorn --worker-tmp-dir /dev/shm bot:server"
+  app = "gunicorn --worker-tmp-dir /dev/shm -k uvicorn.workers.UvicornWorker bot:server"

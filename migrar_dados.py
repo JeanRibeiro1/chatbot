@@ -13,6 +13,9 @@ if not os.path.exists('perguntas_respostas.csv'):
 
 def migrar_dados():
     try:
+        # Criar tabelas
+        Base.metadata.create_all(bind=engine)
+        
         # Ler o arquivo CSV
         print("Lendo arquivo CSV...")
         df = pd.read_csv('perguntas_respostas.csv', encoding='utf-8', quotechar='"')
@@ -21,10 +24,16 @@ def migrar_dados():
         print("Conectando ao banco de dados...")
         session = SessionLocal()
         
+        # --- INÍCIO DA MODIFICAÇÃO ---
+        print("Limpando dados antigos da tabela...")
+        session.query(PerguntaResposta).delete()
+        # --- FIM DA MODIFICAÇÃO ---
+        
         # Processar e inserir cada linha
-        print("Iniciando migração dos dados...")
+        print("Iniciando migração dos novos dados...")
         total_linhas = len(df)
         for index, row in df.iterrows():
+            # ... (o resto da função continua igual)
             texto_processado = preprocessar_texto(row['pergunta'])
             nova_entrada = PerguntaResposta(
                 pergunta=row['pergunta'],
@@ -45,6 +54,6 @@ def migrar_dados():
     except Exception as e:
         print(f"Erro durante a migração: {str(e)}")
         raise
-
+    
 if __name__ == "__main__":
     migrar_dados() 
