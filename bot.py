@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from flask import Flask, request
+from asgiref.wsgi import WsgiToAsgi
 
 # --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
@@ -144,3 +145,5 @@ async def webhook():
     update = Update.de_json(request.get_json(force=True), application.bot)
     await application.process_update(update)
     return 'ok'
+# "Traduz" o nosso app Flask (WSGI) para um formato que o Uvicorn (ASGI) entende.
+server = WsgiToAsgi(server)
