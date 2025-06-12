@@ -128,6 +128,7 @@ print("Modelo preparado com sucesso.")
 
 # 2. Cria a instância da aplicação do Telegram e armazena os dados do modelo
 application = Application.builder().token(TOKEN).build()
+application.bot_data['is_initialized'] = False  # NOSSA VARIÁVEL DE CONTROLE
 application.bot_data['vectorizer'] = vectorizer_global
 application.bot_data['X'] = X_global
 application.bot_data['df'] = df_prepared_global
@@ -140,13 +141,14 @@ application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_m
 server = Flask(__name__)
 
 # 5. Define a rota do webhook que recebe as mensagens do Telegram
-@server.route('/', methods=['POST'])
+@@server.route('/', methods=['POST'])
 async def webhook():
-    # --- INÍCIO DA CORREÇÃO ---
-    # Na primeira vez que esta função for chamada, inicializa a aplicação.
-    if not application.initialized:
+    # --- INÍCIO DA CORREÇÃO FINAL ---
+    # Verifica a NOSSA variável de controle. Se for False, inicializa e muda para True.
+    if not application.bot_data.get('is_initialized', False):
         await application.initialize()
-    # --- FIM DA CORREÇÃO ---
+        application.bot_data['is_initialized'] = True
+    # --- FIM DA CORREÇÃO FINAL ---
 
     update = Update.de_json(request.get_json(force=True), application.bot)
     await application.process_update(update)
