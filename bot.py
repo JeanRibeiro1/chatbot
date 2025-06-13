@@ -49,27 +49,6 @@ ABREVIACOES = {
     'sqs': 'superquadra sul', 'alv': 'alvará', 'doc': 'documento', 'docs': 'documentos',
 }
 
-"""CORRECOES = {
-    'alvara': 'alvará', 'administracao': 'administração', 'brasilia': 'brasília',
-    'denuncia': 'denúncia', 'iluminacao': 'iluminação', 'publica': 'pública',
-    'manutencao': 'manutenção', 'horario': 'horário',
-}"""
-
-def corrigir_texto(texto):
-    texto = texto.lower()
-    texto = re.sub(r'[^a-záàâãéèêíìîóòôõúùûç\s]', '', texto)
-    palavras = texto.split()
-    palavras_corrigidas = [ABREVIACOES.get(palavra, CORRECOES.get(palavra, palavra)) for palavra in palavras]
-    return ' '.join(palavras_corrigidas)
-
-"""def preprocessar_texto(texto):
-    texto = corrigir_texto(texto)
-    stemmer = RSLPStemmer()
-    stop_words = set(stopwords.words('portuguese'))
-    tokens = word_tokenize(texto)
-    tokens_processados = [stemmer.stem(token) for token in tokens if token.isalpha() and token not in stop_words]
-    return ' '.join(tokens_processados)
-"""
 
 def preprocessar_texto(texto):
     """

@@ -1,2 +1,6 @@
 fly.toml
 .venv
+
+# Ignorar scripts de execução única que não fazem parte da aplicação final
+migrar_remoto.py
+notify_startup.py
