@@ -132,7 +132,7 @@ def load_model_into_context(context: ContextTypes.DEFAULT_TYPE):
 
 # --- FUNÇÕES DE HANDLER DO TELEGRAM ---
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('Olá! Eu sou um chatbot da Administração Regional. Como posso ajudar?')
+    await update.message.reply_text('Olá! Eu sou um chatbot da Administração Regional de São Sebastião. Como posso ajudar?')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Processa a mensagem do usuário, garantindo que o modelo de IA esteja carregado."""

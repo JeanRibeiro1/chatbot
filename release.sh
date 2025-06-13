@@ -11,9 +11,9 @@ sleep 5
 python download_nltk.py
 
 # 2. Executa a migração do banco de dados
-python migrar_remoto.py
+#python migrar_remoto.py
 
 # 3. Configura o webhook do Telegram
 python set_webhook.py
 
-python notify_startup.py
+#python notify_startup.py
