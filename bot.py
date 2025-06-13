@@ -1,5 +1,3 @@
-# bot.py - VERSÃO FINAL COM LAZY LOADING
-
 import os
 import re
 import pandas as pd
@@ -17,7 +15,7 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import RSLPStemmer
-
+import unicodedata 
 # --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
 
@@ -51,11 +49,11 @@ ABREVIACOES = {
     'sqs': 'superquadra sul', 'alv': 'alvará', 'doc': 'documento', 'docs': 'documentos',
 }
 
-CORRECOES = {
+"""CORRECOES = {
     'alvara': 'alvará', 'administracao': 'administração', 'brasilia': 'brasília',
     'denuncia': 'denúncia', 'iluminacao': 'iluminação', 'publica': 'pública',
     'manutencao': 'manutenção', 'horario': 'horário',
-}
+}"""
 
 def corrigir_texto(texto):
     texto = texto.lower()
@@ -64,13 +62,53 @@ def corrigir_texto(texto):
     palavras_corrigidas = [ABREVIACOES.get(palavra, CORRECOES.get(palavra, palavra)) for palavra in palavras]
     return ' '.join(palavras_corrigidas)
 
-def preprocessar_texto(texto):
+"""def preprocessar_texto(texto):
     texto = corrigir_texto(texto)
     stemmer = RSLPStemmer()
     stop_words = set(stopwords.words('portuguese'))
     tokens = word_tokenize(texto)
     tokens_processados = [stemmer.stem(token) for token in tokens if token.isalpha() and token not in stop_words]
     return ' '.join(tokens_processados)
+"""
+
+def preprocessar_texto(texto):
+    """
+    Função completa para limpar e normalizar o texto:
+    1. Converte para minúsculas.
+    2. Remove acentos e diacríticos (ex: "construção" -> "construcao").
+    3. Expande abreviações conhecidas.
+    4. Remove caracteres especiais e números.
+    5. Tokeniza o texto em palavras.
+    6. Remove palavras de parada (stopwords).
+    7. Aplica stemming para reduzir palavras à sua raiz.
+    """
+    # 1. Minúsculas
+    texto = texto.lower()
+    
+    # 2. Remover acentos
+    nfkd_form = unicodedata.normalize('NFD', texto)
+    texto_sem_acento = "".join([c for c in nfkd_form if not unicodedata.combining(c)])
+    
+    # 3. Expandir abreviações
+    palavras = texto_sem_acento.split()
+    palavras_expandidas = [ABREVIACOES.get(palavra, palavra) for palavra in palavras]
+    texto = ' '.join(palavras_expandidas)
+    
+    # 4. Remover caracteres especiais e números
+    texto = re.sub(r'[^a-z\s]', '', texto)
+    
+    # 5. Tokenização
+    tokens = word_tokenize(texto)
+    
+    # 6. Remover stopwords
+    stop_words = set(stopwords.words('portuguese'))
+    tokens = [token for token in tokens if token not in stop_words]
+    
+    # 7. Stemming
+    stemmer = RSLPStemmer()
+    tokens = [stemmer.stem(token) for token in tokens]
+    
+    return ' '.join(tokens)
 
 def carregar_dataset():
     try:

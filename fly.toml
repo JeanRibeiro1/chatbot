@@ -22,7 +22,7 @@ primary_region = 'gru'
 
 [[vm]]
   size = 'shared-cpu-1x'
-  memory = '512MB' # Keeping the 512MB we set before
+  memory = '512MB'
 
 [processes]
   app = "gunicorn --worker-tmp-dir /dev/shm -k uvicorn.workers.UvicornWorker bot:server"
