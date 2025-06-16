@@ -10,6 +10,10 @@ sleep 5
 # 1. Baixa os pacotes do NLTK
 python download_nltk.py
 
+echo "Executando a sincronização com a planilha no deploy..."
+python worker.py
+echo "Sincronização no deploy concluída."
+
 # 2. Executa a migração do banco de dados
 #python migrar_remoto.py
 

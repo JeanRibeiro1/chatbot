@@ -3,7 +3,7 @@ import re
 import pandas as pd
 from dotenv import load_dotenv
 from flask import Flask, request
-from sqlalchemy import create_engine, Column, Integer, Text
+from sqlalchemy import create_engine, Column, Integer, Text, Float, DateTime
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sklearn.feature_extraction.text import TfidfVectorizer
@@ -15,7 +15,9 @@ import nltk
 from nltk.tokenize import word_tokenize
 from nltk.corpus import stopwords
 from nltk.stem import RSLPStemmer
-import unicodedata 
+import unicodedata
+from datetime import datetime
+
 # --- CONFIGURAÇÃO INICIAL ---
 load_dotenv()
 
@@ -31,13 +33,23 @@ engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# --- MODELO DE DADOS ---
+# --- MODELOS DE DADOS ---
 class PerguntaResposta(Base):
     __tablename__ = "perguntas_respostas"
     id = Column(Integer, primary_key=True, index=True)
     pergunta = Column(Text)
     resposta = Column(Text)
     texto_processado = Column(Text)
+
+# NOVO MODELO PARA LOG DE INTERAÇÕES
+class HistoricoInteracao(Base):
+    __tablename__ = "historico_interacoes"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Text) # ID do usuário no Telegram
+    pergunta_usuario = Column(Text)
+    resposta_bot = Column(Text)
+    similaridade = Column(Float) # Para guardar a confiança da resposta
+    timestamp = Column(DateTime, default=datetime.utcnow) # Data e hora da interação
 
 Base.metadata.create_all(bind=engine)
 
@@ -104,16 +116,8 @@ def preparar_modelo(df):
     X = vectorizer.fit_transform(df['texto_processado'])
     return vectorizer, X, df
 
-def encontrar_resposta(pergunta, vectorizer, X, df):
-    pergunta_processada = preprocessar_texto(pergunta)
-    pergunta_vetor = vectorizer.transform([pergunta_processada])
-    similaridades = cosine_similarity(pergunta_vetor, X)
-    indice_mais_similar = similaridades.argmax()
-    
-    if similaridades[0, indice_mais_similar] > 0.1:
-        return df.iloc[indice_mais_similar]['resposta']
-    else:
-        return "Desculpe, não encontrei uma resposta adequada para sua pergunta. Tente reformular ou perguntar de outra forma."
+# A função encontrar_resposta foi integrada diretamente em handle_message
+# para facilitar o acesso ao score de similaridade para o logging.
 
 # --- FUNÇÃO DE LAZY LOADING ---
 def load_model_into_context(context: ContextTypes.DEFAULT_TYPE):
@@ -135,24 +139,52 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('Olá! Eu sou um chatbot da Administração Regional de São Sebastião. Como posso ajudar?')
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Processa a mensagem do usuário, garantindo que o modelo de IA esteja carregado."""
+    """Processa a mensagem do usuário, garantindo que o modelo de IA esteja carregado e salvando a interação."""
     try:
         # LAZY LOADING: Se o modelo não estiver no contexto, carregue-o.
         if 'vectorizer' not in context.bot_data:
             load_model_into_context(context)
 
-        text = update.message.text
-        resposta = encontrar_resposta(
-            text, 
-            context.bot_data['vectorizer'], 
-            context.bot_data['X'], 
-            context.bot_data['df']
-        )
-        await update.message.reply_text(resposta)
+        texto_usuario = update.message.text
+        user_id = str(update.message.from_user.id) # Captura o ID do usuário
+        
+        # --- Lógica de busca da resposta (um pouco modificada para obter a similaridade) ---
+        pergunta_processada = preprocessar_texto(texto_usuario)
+        pergunta_vetor = context.bot_data['vectorizer'].transform([pergunta_processada])
+        similaridades = cosine_similarity(pergunta_vetor, context.bot_data['X'])
+        indice_mais_similar = similaridades.argmax()
+        score_similaridade = float(similaridades[0, indice_mais_similar])
+
+        if score_similaridade > 0.1:
+            resposta_bot = context.bot_data['df'].iloc[indice_mais_similar]['resposta']
+        else:
+            resposta_bot = "Desculpe, não encontrei uma resposta adequada para sua pergunta. Tente reformular ou perguntar de outra forma."
+
+        # --- SALVAR A INTERAÇÃO NO BANCO DE DADOS ---
+        try:
+            session = SessionLocal()
+            nova_interacao = HistoricoInteracao(
+                user_id=user_id,
+                pergunta_usuario=texto_usuario,
+                resposta_bot=resposta_bot,
+                similaridade=score_similaridade
+            )
+            session.add(nova_interacao)
+            session.commit()
+            print(f"Interação salva: user {user_id[:5]}... - score: {score_similaridade:.2f}")
+        except Exception as db_error:
+            print(f"Erro ao salvar interação no banco de dados: {db_error}")
+        finally:
+            if 'session' in locals() and session.is_active:
+                session.close()
+        
+        await update.message.reply_text(resposta_bot)
+
     except Exception as e:
         error_message = f'Ocorreu um erro ao processar sua mensagem: {str(e)}'
         print(error_message)
         await update.message.reply_text(error_message)
+
 
 # --- INICIALIZAÇÃO FINAL PARA O SERVIDOR ---
 print("Configurando a aplicação Telegram...")

@@ -9,6 +9,14 @@ WORKDIR /app
 # 1. Copia PRIMEIRO o arquivo de dependências
 COPY requirements.txt .
 
+# Adicione estas linhas para instalar o Supercronic
+ENV SUPERCRONIC_VERSION=v0.2.29
+# Versão corrigida: Instala o curl, depois baixa o supercronic, e por fim limpa o cache
+RUN apt-get update && apt-get install -y curl && \
+    curl -fsSL "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-amd64" -o /usr/local/bin/supercronic && \
+    chmod +x /usr/local/bin/supercronic && \
+    apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # 2. Em seguida, INSTALA as dependências (incluindo o nltk)
 RUN pip install --no-cache-dir -r requirements.txt
 

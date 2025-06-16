@@ -26,3 +26,5 @@ primary_region = 'gru'
 
 [processes]
   app = "gunicorn --worker-tmp-dir /dev/shm -k uvicorn.workers.UvicornWorker bot:server"
+
+  cron = "supercronic /app/crontab.txt"

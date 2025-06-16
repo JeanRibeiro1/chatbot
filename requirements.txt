@@ -9,3 +9,5 @@ flask[async]==3.0.0
 gunicorn==22.0.0
 uvicorn==0.29.0
 asgiref==3.7.2
+gspread
+gspread-dataframe
